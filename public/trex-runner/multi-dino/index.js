@@ -2,7 +2,27 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 // extract from chromium source code by @liuwayong
+
 (function () {
+    class TrexPopulation {
+        constructor(canvas, spritePos, count) {
+            this.members = [];
+            for (let i = 0; i < count; i++) {
+                this.members.push(new Trex(canvas, spritePos, i))
+            }
+        }
+
+        getTrex(index) {
+            return this.members[index || 0];
+        }
+
+        iterateAll(func) {
+            this.members.filter(m => !m.isDied).forEach(m => {
+                func(m)
+            });
+        }
+    }
+
     'use strict';
     /**
      * T-Rex runner.
@@ -11,7 +31,7 @@
      * @constructor
      * @export
      */
-    function Runner(outerContainerId, opt_config) {
+    function Runner(outerContainerId, opt_config, count) {
         // Singleton
         if (Runner.instance_) {
             return Runner.instance_;
@@ -30,7 +50,8 @@
         this.canvas = null;
         this.canvasCtx = null;
 
-        this.tRex = null;
+        this.population = null;
+        this.populationCount = count;
 
         this.distanceMeter = null;
         this.distanceRan = 0;
@@ -264,7 +285,7 @@
          * @param {string} setting
          * @param {*} value
          */
-        updateConfigSetting: function (setting, value) {
+        updateConfigSetting: function (trex, setting, value) {
             if (setting in this.config && value != undefined) {
                 this.config[setting] = value;
 
@@ -272,10 +293,10 @@
                     case 'GRAVITY':
                     case 'MIN_JUMP_HEIGHT':
                     case 'SPEED_DROP_COEFFICIENT':
-                        this.tRex.config[setting] = value;
+                        trex.config[setting] = value;
                         break;
                     case 'INITIAL_JUMP_VELOCITY':
-                        this.tRex.setJumpVelocity(value);
+                        trex.setJumpVelocity(value);
                         break;
                     case 'SPEED':
                         this.setSpeed(value);
@@ -379,7 +400,7 @@
                 this.spriteDef.TEXT_SPRITE, this.dimensions.WIDTH);
 
             // Draw t-rex
-            this.tRex = new Trex(this.canvas, this.spriteDef.TREX);
+            this.population = new TrexPopulation(this.canvas, this.spriteDef.TREX, this.populationCount);
 
             this.outerContainerEl.appendChild(this.containerEl);
 
@@ -429,7 +450,7 @@
             if (this.activated) {
                 this.setArcadeModeContainerScale();
             }
-            
+
             // Redraw the elements back onto the canvas.
             if (this.canvas) {
                 this.canvas.width = this.dimensions.WIDTH;
@@ -440,7 +461,7 @@
                 this.distanceMeter.calcXPos(this.dimensions.WIDTH);
                 this.clearCanvas();
                 this.horizon.update(0, 0, true);
-                this.tRex.update(0);
+                this.population.iterateAll(perTrex => { perTrex.update(0) })
 
                 // Outer container and distance meter.
                 if (this.playing || this.crashed || this.paused) {
@@ -449,7 +470,7 @@
                     this.distanceMeter.update(0, Math.ceil(this.distanceRan));
                     this.stop();
                 } else {
-                    this.tRex.draw(0, 0);
+                    this.population.iterateAll(perTrex => { perTrex.draw(0, 0); })
                 }
 
                 // Game over panel.
@@ -467,14 +488,14 @@
         playIntro: function () {
             if (!this.activated && !this.crashed) {
                 this.playingIntro = true;
-                this.tRex.playingIntro = true;
+                this.population.iterateAll(perTrex => { perTrex.playingIntro = true })
 
                 // CSS animation definition.
                 var keyframes = '@-webkit-keyframes intro { ' +
                     'from { width:' + Trex.config.WIDTH + 'px }' +
                     'to { width: ' + this.dimensions.WIDTH + 'px }' +
                     '}';
-                
+
                 // create a style sheet to put the keyframe rule in 
                 // and then place the style sheet in the html head    
                 var sheet = document.createElement('style');
@@ -505,7 +526,7 @@
             this.setArcadeMode();
             this.runningTime = 0;
             this.playingIntro = false;
-            this.tRex.playingIntro = false;
+            this.population.iterateAll(perTrex => { perTrex.playingIntro = false })
             this.containerEl.style.webkitAnimation = '';
             this.playCount++;
 
@@ -528,6 +549,7 @@
         /**
          * Update the game frame and schedules the next one.
          */
+
         update: function () {
             this.updatePending = false;
 
@@ -538,15 +560,23 @@
             if (this.playing) {
                 this.clearCanvas();
 
-                if (this.tRex.jumping) {
-                    this.tRex.updateJump(deltaTime);
-                }
+                this.population.iterateAll(perTrex => {
+                    if (perTrex.jumping) {
+                        perTrex.updateJump(deltaTime);
+                    }
+                })
 
                 this.runningTime += deltaTime;
                 var hasObstacles = this.runningTime > this.config.CLEAR_TIME;
 
-                // First jump triggers the intro.
-                if (this.tRex.jumpCount == 1 && !this.playingIntro) {
+                let playIntro = false;
+                this.population.iterateAll(perTrex => {
+                    // First jump triggers the intro.
+                    if (perTrex.jumpCount == 1 && !this.playingIntro) {
+                        playIntro = true;
+                    }
+                })
+                if (playIntro) {
                     this.playIntro();
                 }
 
@@ -559,18 +589,22 @@
                         this.inverted);
                 }
 
-                // Check for collisions.
-                var collision = hasObstacles &&
-                    checkForCollision(this.horizon.obstacles[0], this.tRex);
+                this.population.iterateAll(perTrex => {
+                    // Check for collisions.
+                    var collision = hasObstacles &&
+                        checkForCollision(this.horizon.obstacles[0], perTrex);
 
-                if (!collision) {
-                    this.distanceRan += this.currentSpeed * deltaTime / this.msPerFrame;
-
-                    if (this.currentSpeed < this.config.MAX_SPEED) {
-                        this.currentSpeed += this.config.ACCELERATION;
+                    if (collision) {
+                        perTrex.update(100, Trex.status.CRASHED);
+                        perTrex.isDied = true;
+                        //this.gameOver();
                     }
-                } else {
-                    this.gameOver();
+                })
+
+                this.distanceRan += this.currentSpeed * deltaTime / this.msPerFrame;
+
+                if (this.currentSpeed < this.config.MAX_SPEED) {
+                    this.currentSpeed += this.config.ACCELERATION;
                 }
 
                 var playAchievementSound = this.distanceMeter.update(deltaTime,
@@ -603,9 +637,17 @@
                 }
             }
 
-            if (this.playing || (!this.activated &&
-                this.tRex.blinkCount < Runner.config.MAX_BLINK_COUNT)) {
-                this.tRex.update(deltaTime);
+
+
+            let nextUpdate = false;
+            this.population.iterateAll(perTrex => {
+                if (this.playing || (!this.activated &&
+                    perTrex.blinkCount < Runner.config.MAX_BLINK_COUNT)) {
+                    perTrex.update(deltaTime);
+                    nextUpdate = true;
+                }
+            })
+            if (nextUpdate) {
                 this.scheduleNextUpdate();
             }
         },
@@ -617,13 +659,9 @@
             return (function (evtType, events) {
                 switch (evtType) {
                     case events.KEYDOWN:
-                    case events.TOUCHSTART:
-                    case events.MOUSEDOWN:
                         this.onKeyDown(e);
                         break;
                     case events.KEYUP:
-                    case events.TOUCHEND:
-                    case events.MOUSEUP:
                         this.onKeyUp(e);
                         break;
                 }
@@ -637,17 +675,6 @@
             // Keys.
             document.addEventListener(Runner.events.KEYDOWN, this);
             document.addEventListener(Runner.events.KEYUP, this);
-
-            if (IS_MOBILE) {
-                // Mobile only touch devices.
-                this.touchController.addEventListener(Runner.events.TOUCHSTART, this);
-                this.touchController.addEventListener(Runner.events.TOUCHEND, this);
-                this.containerEl.addEventListener(Runner.events.TOUCHSTART, this);
-            } else {
-                // Mouse.
-                document.addEventListener(Runner.events.MOUSEDOWN, this);
-                document.addEventListener(Runner.events.MOUSEUP, this);
-            }
         },
 
         /**
@@ -672,6 +699,8 @@
          * @param {Event} e
          */
         onKeyDown: function (e) {
+            const perTrex = this.population.getTrex(e.trexIndex);
+
             // Prevent native page scrolling whilst tapping on mobile.
             if (IS_MOBILE && this.playing) {
                 e.preventDefault();
@@ -689,9 +718,9 @@
                         }
                     }
                     //  Play sound effect and jump on starting the game for the first time.
-                    if (!this.tRex.jumping && !this.tRex.ducking) {
+                    if (!perTrex.jumping && !perTrex.ducking) {
                         this.playSound(this.soundFx.BUTTON_PRESS);
-                        this.tRex.startJump(this.currentSpeed);
+                        perTrex.startJump(this.currentSpeed);
                     }
                 }
 
@@ -703,12 +732,12 @@
 
             if (this.playing && !this.crashed && Runner.keycodes.DUCK[e.keyCode]) {
                 e.preventDefault();
-                if (this.tRex.jumping) {
+                if (perTrex.jumping) {
                     // Speed drop, activated only when jump key is not pressed.
-                    this.tRex.setSpeedDrop();
-                } else if (!this.tRex.jumping && !this.tRex.ducking) {
+                    perTrex.setSpeedDrop();
+                } else if (!perTrex.jumping && !perTrex.ducking) {
                     // Duck.
-                    this.tRex.setDuck(true);
+                    perTrex.setDuck(true);
                 }
             }
         },
@@ -719,16 +748,17 @@
          * @param {Event} e
          */
         onKeyUp: function (e) {
+            const perTrex = this.population.getTrex(e.trexIndex);
             var keyCode = String(e.keyCode);
             var isjumpKey = Runner.keycodes.JUMP[keyCode] ||
                 e.type == Runner.events.TOUCHEND ||
                 e.type == Runner.events.MOUSEDOWN;
 
             if (this.isRunning() && isjumpKey) {
-                this.tRex.endJump();
+                perTrex.endJump();
             } else if (Runner.keycodes.DUCK[keyCode]) {
-                this.tRex.speedDrop = false;
-                this.tRex.setDuck(false);
+                perTrex.speedDrop = false;
+                perTrex.setDuck(false);
             } else if (this.crashed) {
                 // Check that enough time has elapsed before allowing jump key to restart.
                 var deltaTime = getTimeStamp() - this.time;
@@ -740,7 +770,7 @@
                 }
             } else if (this.paused && isjumpKey) {
                 // Reset the jump state
-                this.tRex.reset();
+                perTrex.reset();
                 this.play();
             }
         },
@@ -817,7 +847,9 @@
             if (!this.crashed) {
                 this.playing = true;
                 this.paused = false;
-                this.tRex.update(0, Trex.status.RUNNING);
+                this.population.iterateAll(perTrex => {
+                    perTrex.update(0, Trex.status.RUNNING);
+                });
                 this.time = getTimeStamp();
                 this.update();
             }
@@ -836,13 +868,15 @@
                 this.clearCanvas();
                 this.distanceMeter.reset(this.highestScore);
                 this.horizon.reset();
-                this.tRex.reset();
+                this.population.iterateAll(perTrex => {
+                    perTrex.reset();
+                });
                 this.playSound(this.soundFx.BUTTON_PRESS);
                 this.invert(true);
                 this.update();
             }
         },
-        
+
         /**
          * Hides offline messaging for a fullscreen game only experience.
          */
@@ -863,15 +897,15 @@
             // Positions the game container at 10% of the available vertical window
             // height minus the game container height.
             const translateY = Math.ceil(Math.max(0, (windowHeight - scaledCanvasHeight -
-                                                      Runner.config.ARCADE_MODE_INITIAL_TOP_POSITION) *
-                                                  Runner.config.ARCADE_MODE_TOP_POSITION_PERCENT)) *
-                  window.devicePixelRatio;
+                Runner.config.ARCADE_MODE_INITIAL_TOP_POSITION) *
+                Runner.config.ARCADE_MODE_TOP_POSITION_PERCENT)) *
+                window.devicePixelRatio;
 
             const cssScale = scale;
             this.containerEl.style.transform =
                 'scale(' + cssScale + ') translateY(' + translateY + 'px)';
         },
-        
+
         /**
          * Pause the game if the tab is not in focus.
          */
@@ -880,7 +914,9 @@
                 document.visibilityState != 'visible') {
                 this.stop();
             } else if (!this.crashed) {
-                this.tRex.reset();
+                this.population.iterateAll(perTrex => {
+                    perTrex.reset();
+                });
                 this.play();
             }
         },
@@ -1524,7 +1560,7 @@
      * @param {Object} spritePos Positioning within image sprite.
      * @constructor
      */
-    function Trex(canvas, spritePos) {
+    function Trex(canvas, spritePos, id) {
         this.canvas = canvas;
         this.canvasCtx = canvas.getContext('2d');
         this.spritePos = spritePos;
@@ -1550,7 +1586,7 @@
         this.speedDrop = false;
         this.jumpCount = 0;
         this.jumpspotX = 0;
-
+        this.id = id;
         this.init();
     };
 
@@ -2745,8 +2781,8 @@
 })();
 
 
-function onDocumentLoad() {
-    new Runner('.interstitial-wrapper');
+function onDocumentLoad(e) {
+    new Runner('.interstitial-wrapper', undefined, e.populationCount);
 }
 
-document.addEventListener('DOMContentLoaded', onDocumentLoad);
+document.addEventListener('startRunner', onDocumentLoad);
