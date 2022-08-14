@@ -1,5 +1,6 @@
-var connect = require('connect');
-var serveStatic = require('serve-static');
+import connect from 'connect';
+import serveStatic from 'serve-static';
+
 const PORT = 3001;
 connect()
     .use(serveStatic("public"))
