@@ -29,4 +29,4 @@ node src/multi-dino-trainer.js
 
 ### Resources
 - Neural Network library source code is [here](https://github.com/CodingTrain/Toy-Neural-Network-JS)
-- Game extracted from Chromium by @liuwayong.  Original repo is [here](https://github.com/CodingTrain/Toy-Neural-Network-JS)
+- Game extracted from Chromium by @liuwayong.  Original repo is [here](https://github.com/wayou/t-rex-runner)
